@@ -1,8 +1,15 @@
-import { auth, currentUser } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
 
-// (Optional) import Supabase if you want to pull ESG info from DB later
-// import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { auth, currentUser } from '@clerk/nextjs/server';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
+import Stripe from 'stripe';
+
+// Initialize Stripe (replace YOUR_STRIPE_SECRET_KEY)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2023-10-16',
+});
 
 export async function GET() {
   try {
@@ -12,19 +19,62 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // ✅ Basic mockup values for now
-    // Later you can fetch real data from Supabase or your database
-    const esgVerified = false; // Replace with real lookup
-    const subscriptionActive = false; // Replace with real Stripe subscription check
-    const esgUploadExists = false; // Replace with real ESG uploads check
+    const supabase = createRouteHandlerClient({ cookies });
+
+    // Fetch ESG verification status
+    const { data: esgData, error: esgError } = await supabase
+      .from('user_esg_verifications') // Your table name
+      .select('verified')
+      .eq('user_id', user.id)
+      .single();
+
+    if (esgError && esgError.code !== 'PGRST116') {
+      console.error('Supabase ESG fetch error:', esgError);
+      throw new Error('Failed to fetch ESG data');
+    }
+
+    const esgVerified = esgData?.verified || false;
+
+    // Check if ESG uploads exist
+    const { data: uploadData, error: uploadError } = await supabase
+      .from('user_esg_uploads') // Your uploads table name
+      .select('id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (uploadError && uploadError.code !== 'PGRST116') {
+      console.error('Supabase ESG uploads fetch error:', uploadError);
+      throw new Error('Failed to fetch ESG uploads');
+    }
+
+    const esgUploadExists = !!uploadData;
+
+    // Fetch Stripe subscription status
+    const customerId = user.privateMetadata?.stripeCustomerId as string | undefined;
+
+    let subscriptionActive = false;
+    if (customerId) {
+      const subscriptions = await stripe.subscriptions.list({
+        customer: customerId,
+        status: 'all',
+        limit: 1,
+      });
+
+      const activeSub = subscriptions.data.find(
+        (sub) => sub.status === 'active' || sub.status === 'trialing'
+      );
+
+      subscriptionActive = !!activeSub;
+    }
 
     return NextResponse.json({
       esgVerified,
       subscriptionActive,
       esgUploadExists,
-    });
+    }, { status: 200 });
+
   } catch (error) {
-    console.error('Error in /api/user/details:', error);
+    console.error('Error fetching user details:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
