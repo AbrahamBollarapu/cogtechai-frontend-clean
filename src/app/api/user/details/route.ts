@@ -6,9 +6,9 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
-// Initialize Stripe (replace YOUR_STRIPE_SECRET_KEY)
+// Initialize Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
+  apiVersion: '2022-11-15',  // 🛠 FIXED
 });
 
 export async function GET() {
@@ -23,7 +23,7 @@ export async function GET() {
 
     // Fetch ESG verification status
     const { data: esgData, error: esgError } = await supabase
-      .from('user_esg_verifications') // Your table name
+      .from('user_esg_verifications')
       .select('verified')
       .eq('user_id', user.id)
       .single();
@@ -37,7 +37,7 @@ export async function GET() {
 
     // Check if ESG uploads exist
     const { data: uploadData, error: uploadError } = await supabase
-      .from('user_esg_uploads') // Your uploads table name
+      .from('user_esg_uploads')
       .select('id')
       .eq('user_id', user.id)
       .maybeSingle();
@@ -67,11 +67,14 @@ export async function GET() {
       subscriptionActive = !!activeSub;
     }
 
-    return NextResponse.json({
-      esgVerified,
-      subscriptionActive,
-      esgUploadExists,
-    }, { status: 200 });
+    return NextResponse.json(
+      {
+        esgVerified,
+        subscriptionActive,
+        esgUploadExists,
+      },
+      { status: 200 }
+    );
 
   } catch (error) {
     console.error('Error fetching user details:', error);
